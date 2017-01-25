@@ -20,6 +20,7 @@ setup(
         'git+ssh://git@github.com/tokenbrowser/tokenbrowser-python.git#egg=tokenbrowser-0.0.1'
     ],
     tests_require=[
-        'pytest'
+        'pytest',
+        'requests'
     ]
 )
