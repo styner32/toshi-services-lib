@@ -8,7 +8,7 @@ import time
 from tornado.platform.asyncio import to_asyncio_future
 
 from asyncbb.errors import JsonRPCError
-from tokenbrowser.crypto import private_key_to_address
+from ethutils import private_key_to_address
 from tokenbrowser.request import sign_request
 
 from tokenservices.handlers import TOKEN_TIMESTAMP_HEADER, TOKEN_SIGNATURE_HEADER, TOKEN_ID_ADDRESS_HEADER

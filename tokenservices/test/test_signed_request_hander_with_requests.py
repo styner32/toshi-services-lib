@@ -10,8 +10,8 @@ import tornado.httpserver
 
 import threading
 
+from ethutils import private_key_to_address
 from tokenbrowser.test.utils import get_unused_port
-from tokenbrowser.crypto import private_key_to_address
 from tokenbrowser.request import sign_request
 
 from tokenservices.test.test_signed_request_handler import SimpleHandler
