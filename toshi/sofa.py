@@ -9,7 +9,7 @@ class SofaBase:
 
     def __init__(self, type, **kwargs):
 
-        self._type = type
+        self.type = type
         self._data = kwargs
 
     def __setitem__(self, key, value):
@@ -20,7 +20,7 @@ class SofaBase:
 
     def render(self):
 
-        return "SOFA::{type}:{json}".format(type=self._type, json=json.dumps(self._data))
+        return "SOFA::{type}:{json}".format(type=self.type, json=json.dumps(self._data))
 
     def __str__(self):
 
@@ -50,7 +50,8 @@ class SofaPayment(SofaBase):
             if isinstance(value, (int, float, Decimal)):
                 value = hex(value)
             elif value[:2] != "0x":
-                raise ValueError("Expected number of hex string for value argument")
+                raise ValueError("Expected number or hex string for value argument. got {}: \"{}\"".format(
+                    type(value), value))
 
         return super().__setitem__(key, value)
 
@@ -80,10 +81,41 @@ class SofaPayment(SofaBase):
         else:
             raise TypeError("Unable to create SOFA::Payment from type '{}'".format(type(tx)))
 
+class SofaTokenPayment(SofaBase):
 
-VALID_SOFA_TYPES = ('message', 'command', 'init', 'initrequest', 'payment', 'paymentrequest')
+    def __init__(self, status=None, txHash=None, value=None, currency=None, fromAddress=None, toAddress=None, networkId=None, contractAddress=None, **kwargs):
+
+        super().__init__("TokenPayment", **kwargs)
+
+        self['status'] = status
+        self['txHash'] = txHash
+        self['value'] = value
+        self['currency'] = currency
+        self['fromAddress'] = fromAddress
+        self['toAddress'] = toAddress
+        self['networkId'] = networkId
+        self['contractAddress'] = contractAddress
+
+    def __setitem__(self, key, value):
+
+        if key not in ('status', 'txHash', 'value', 'currency', 'tx_hash', 'hash', 'fromAddress', 'toAddress', 'networkId', 'contractAddress'):
+            raise KeyError(key)
+        if key == 'tx_hash' or key == 'hash':
+            key = 'txHash'
+        if key == 'value':
+            if isinstance(value, (int, float, Decimal)):
+                value = hex(value)
+            elif value[:2] != "0x":
+                raise ValueError("Expected number or hex string for value argument. got {}: \"{}\"".format(
+                    type(value), value))
+
+        return super().__setitem__(key, value)
+
+
+VALID_SOFA_TYPES = ('message', 'command', 'init', 'initrequest', 'payment', 'paymentrequest', 'tokenpayment')
 IMPLEMENTED_SOFA_TYPES = {
-    'payment': SofaPayment
+    'payment': SofaPayment,
+    'tokenpayment': SofaTokenPayment
 }
 
 def parse_sofa_message(message):
