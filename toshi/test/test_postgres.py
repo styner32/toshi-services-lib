@@ -1,5 +1,5 @@
-from .base import AsyncHandlerTest
-from .database import requires_database
+from toshi.test.base import AsyncHandlerTest
+from toshi.test.database import requires_database
 
 from toshi.handlers import BaseHandler
 from toshi.database import DatabaseMixin

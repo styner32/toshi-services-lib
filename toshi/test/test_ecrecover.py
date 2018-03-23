@@ -1,6 +1,5 @@
 import unittest
 from toshi.ethereum.utils import ecrecover, data_decoder
-from ethereum import utils
 
 class TestEcrecover(unittest.TestCase):
     def test_valid_recovery(self):

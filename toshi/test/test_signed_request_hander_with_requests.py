@@ -12,10 +12,10 @@ import tornado.httpserver
 import threading
 
 from toshi.ethereum.utils import private_key_to_address
-from .utils import get_unused_port
+from toshi.test.utils import get_unused_port
 from toshi.request import sign_request
 
-from .test_signed_request_handler import SimpleHandler
+from toshi.test.test_signed_request_handler import SimpleHandler
 from toshi.handlers import TOSHI_TIMESTAMP_HEADER, TOSHI_SIGNATURE_HEADER, TOSHI_ID_ADDRESS_HEADER
 
 TEST_PRIVATE_KEY = "0xe8f32e723decf4051aefac8e2c93c9c5b214313817cdb01a1494b917c8436b35"

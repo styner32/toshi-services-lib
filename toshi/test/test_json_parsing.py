@@ -1,4 +1,4 @@
-from .base import AsyncHandlerTest
+from toshi.test.base import AsyncHandlerTest
 
 from toshi.handlers import BaseHandler
 from tornado.testing import gen_test

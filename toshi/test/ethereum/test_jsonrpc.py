@@ -1,9 +1,9 @@
-from ..base import AsyncHandlerTest
+from toshi.test.base import AsyncHandlerTest
 from toshi.handlers import BaseHandler
 from toshi.ethereum import EthereumMixin
 from tornado.testing import gen_test
 
-from .parity import requires_parity, FAUCET_ADDRESS
+from toshi.test.ethereum.parity import requires_parity, FAUCET_ADDRESS
 
 class Handler(EthereumMixin, BaseHandler):
 
