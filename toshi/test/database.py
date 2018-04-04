@@ -1,5 +1,6 @@
 import asyncio
 import testing.postgresql
+import signal
 from toshi.config import config
 from toshi.database import prepare_database, set_database_pool
 from toshi.log import log
@@ -52,7 +53,7 @@ def requires_database(func=None):
             finally:
                 await self.pool.close()
                 set_database_pool(None)
-                psql.stop()
+                psql.stop(_signal=signal.SIGKILL)
                 del config['database']
 
         return wrapper
