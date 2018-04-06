@@ -89,9 +89,6 @@ class JsonRPCClient:
             raise JsonRPCError(-1, "returned id was not the same as the inital request")
 
         if "error" in rval:
-            # monitor if errors with block number happen often
-            if "Unknown block number" in rval['error']['message']:
-                self.log.error("Got 'Unknown block number' when calling '{}' with params: {}".format(method, params))
             raise JsonRPCError(rval['id'], rval['error']['code'], rval['error']['message'], rval['error']['data'] if 'data' in rval['error'] else None)
 
         return rval['result']
