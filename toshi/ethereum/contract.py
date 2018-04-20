@@ -19,21 +19,6 @@ def get_url():
         raise Exception("requires 'ETHEREUM_NODE_URL' environment variable to be set")
     return ethurl
 
-def fix_address_decoding(decoded, types):
-    """ethereum library result decoding doesn't add 0x to addresses
-    this parses the decoded results and adds 0x to any address types"""
-    rval = []
-    for val, type in zip(decoded, types):
-        if type == 'address':
-            rval.append('0x{}'.format(val.decode('ascii')))
-        elif type == 'address[]':
-            rval.append(['0x{}'.format(v.decode('ascii')) for v in val])
-        elif type == 'string':
-            rval.append(val.rstrip(b'\x00').decode('utf-8'))
-        else:
-            rval.append(val)
-    return rval
-
 class ContractTranslator(ethereum.abi.ContractTranslator):
     def __init__(self, contract_interface):
         super().__init__(contract_interface)
@@ -93,8 +78,9 @@ class ContractMethod:
             result = data_decoder(result)
             if result:
                 decoded = self.contract.translator.decode_function_result(self.name, result)
-                # make sure addresses are encoded as expected
-                decoded = fix_address_decoding(decoded, self.contract.translator.function_data[self.name]['decode_types'])
+                # decode string results
+                decoded = [val.decode('utf-8') if isinstance(val, bytes) and type == 'string' else val
+                           for val, type in zip(decoded, self.contract.translator.function_data[self.name]['decode_types'])]
                 # return the single value if there is only a single return value
                 if len(decoded) == 1:
                     return decoded[0]
