@@ -29,6 +29,10 @@ class TestParseInt(unittest.TestCase):
 
         self.assertEqual(parse_int("0x12345"), 74565)
 
+    def test_parse_negative_hex_string(self):
+
+        self.assertEqual(parse_int("-0x12345"), -74565)
+
     def test_parse_float(self):
 
         self.assertEqual(parse_int(12345.45675), 12345)

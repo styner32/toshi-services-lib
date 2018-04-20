@@ -48,12 +48,17 @@ def parse_int(value):
     if isinstance(value, bytes):
         value = value.decode('ascii', 'replace')
     if isinstance(value, str_types):
+        if len(value) and value[0] == '-':
+            multiplier = -1
+            value = value[1:]
+        else:
+            multiplier = 1
         if validate_hex_string(value):
-            return int(value[2:], 16)
+            return int(value[2:], 16) * multiplier
         if validate_int_string(value):
-            return int(value)
+            return int(value) * multiplier
         if validate_decimal_string(value):
-            return int(float(value))
+            return int(float(value)) * multiplier
     return None
 
 def parse_boolean(b):
