@@ -38,9 +38,9 @@ def validate_block_param(param):
 
 class JsonRPCClient:
 
-    def __init__(self, url, should_retry=True, log=None):
+    def __init__(self, url, should_retry=True, log=None, max_clients=100):
         self._url = url
-        self._httpclient = tornado.httpclient.AsyncHTTPClient()
+        self._httpclient = tornado.httpclient.AsyncHTTPClient(max_clients=max_clients)
         if log is None:
             self.log = JSONRPC_LOG
         else:
