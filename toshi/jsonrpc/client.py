@@ -5,7 +5,8 @@ import regex
 import tornado.httpclient
 import logging
 
-from .errors import JsonRPCError
+from toshi.jsonrpc.errors import JsonRPCError
+from toshi.utils import parse_int
 
 JSONRPC_LOG = logging.getLogger("toshi.jsonrpc.client")
 
@@ -15,6 +16,8 @@ HEX_RE = regex.compile("(0x)?([0-9a-fA-F]+)")
 
 def validate_hex(value, length=None):
     if isinstance(value, int):
+        if value < 0:
+            raise ValueError("Negative values are unsupported")
         value = hex(value)[2:]
     if isinstance(value, bytes):
         value = binascii.b2a_hex(value).decode('ascii')
@@ -38,16 +41,20 @@ def validate_block_param(param):
 
 class JsonRPCClient:
 
-    def __init__(self, url, should_retry=True, log=None, max_clients=100):
+    def __init__(self, url, should_retry=True, log=None, max_clients=100, bulk_mode=False):
         self._url = url
-        self._httpclient = tornado.httpclient.AsyncHTTPClient(max_clients=max_clients)
+        self._max_clients = max_clients
+        self._httpclient = tornado.httpclient.AsyncHTTPClient(max_clients=self._max_clients)
         if log is None:
             self.log = JSONRPC_LOG
         else:
             self.log = log
         self.should_retry = should_retry
+        self._bulk_mode = bulk_mode
+        self._bulk_futures = {}
+        self._bulk_data = []
 
-    async def _fetch(self, method, params=None):
+    def _fetch(self, method, params=None, result_processor=None):
         id = random.randint(0, 1000000)
 
         if params is None:
@@ -60,6 +67,18 @@ class JsonRPCClient:
             "params": params
         }
 
+        if self._bulk_mode is True:
+            while id in self._bulk_futures:
+                id = random.randint(0, 1000000)
+                data['id'] = id
+            self._bulk_data.append(data)
+            future = asyncio.get_event_loop().create_future()
+            self._bulk_futures[id] = (future, result_processor)
+            return future
+
+        return self._execute_single(data, result_processor)
+
+    async def _execute_single(self, data, result_processor):
         # NOTE: letting errors fall through here for now as it means
         # there is something drastically wrong with the jsonrpc server
         # which means something probably needs to be fixed
@@ -73,7 +92,7 @@ class JsonRPCClient:
                     body=tornado.escape.json_encode(data)
                 )
             except:
-                self.log.error("Error in JsonRPCClient._fetch ({}): retry {}".format(method, retries))
+                self.log.error("Error in JsonRPCClient._fetch ({}): retry {}".format(data['method'], retries))
                 retries += 1
                 # give up after a "while"
                 if not self.should_retry or retries >= 5:
@@ -85,39 +104,31 @@ class JsonRPCClient:
         rval = tornado.escape.json_decode(resp.body)
 
         # verify the id we got back is the same as what we passed
-        if id != rval['id']:
+        if data['id'] != rval['id']:
             raise JsonRPCError(-1, "returned id was not the same as the inital request")
 
         if "error" in rval:
             raise JsonRPCError(rval['id'], rval['error']['code'], rval['error']['message'], rval['error']['data'] if 'data' in rval['error'] else None)
 
+        if result_processor:
+            return result_processor(rval['result'])
         return rval['result']
 
-    async def eth_getBalance(self, address, block="latest"):
+    def eth_getBalance(self, address, block="latest"):
 
         address = validate_hex(address)
         block = validate_block_param(block)
 
-        result = await self._fetch("eth_getBalance", [address, block])
+        return self._fetch("eth_getBalance", [address, block], parse_int)
 
-        if result.startswith("0x"):
-            result = result[2:]
-
-        return int(result, 16)
-
-    async def eth_getTransactionCount(self, address, block="latest"):
+    def eth_getTransactionCount(self, address, block="latest"):
 
         address = validate_hex(address)
         block = validate_block_param(block)
 
-        result = await self._fetch("eth_getTransactionCount", [address, block])
+        return self._fetch("eth_getTransactionCount", [address, block], parse_int)
 
-        if result.startswith("0x"):
-            result = result[2:]
-
-        return int(result, 16)
-
-    async def eth_estimateGas(self, source_address, target_address, **kwargs):
+    def eth_estimateGas(self, source_address, target_address, **kwargs):
 
         source_address = validate_hex(source_address)
         hexkwargs = {"from": source_address}
@@ -132,49 +143,34 @@ class JsonRPCClient:
             hexkwargs[k] = validate_hex(value)
         if 'value' not in hexkwargs:
             hexkwargs['value'] = "0x0"
-        result = await self._fetch("eth_estimateGas", [hexkwargs])
+        return self._fetch("eth_estimateGas", [hexkwargs], parse_int)
 
-        return int(result, 16)
-
-    async def eth_sendRawTransaction(self, tx):
+    def eth_sendRawTransaction(self, tx):
 
         tx = validate_hex(tx)
-        result = await self._fetch("eth_sendRawTransaction", [tx])
+        return self._fetch("eth_sendRawTransaction", [tx])
 
-        return result
-
-    async def eth_getTransactionReceipt(self, tx):
+    def eth_getTransactionReceipt(self, tx):
 
         tx = validate_hex(tx)
-        result = await self._fetch("eth_getTransactionReceipt", [tx])
+        return self._fetch("eth_getTransactionReceipt", [tx])
 
-        return result
-
-    async def eth_getTransactionByHash(self, tx):
+    def eth_getTransactionByHash(self, tx):
 
         tx = validate_hex(tx)
-        result = await self._fetch("eth_getTransactionByHash", [tx])
+        return self._fetch("eth_getTransactionByHash", [tx])
 
-        return result
+    def eth_blockNumber(self):
 
-    async def eth_blockNumber(self):
+        return self._fetch("eth_blockNumber", [], parse_int)
 
-        result = await self._fetch("eth_blockNumber", [])
-
-        if result.startswith("0x"):
-            result = result[2:]
-
-        return int(result, 16)
-
-    async def eth_getBlockByNumber(self, number, with_transactions=True):
+    def eth_getBlockByNumber(self, number, with_transactions=True):
 
         number = validate_block_param(number)
 
-        result = await self._fetch("eth_getBlockByNumber", [number, with_transactions])
+        return self._fetch("eth_getBlockByNumber", [number, with_transactions])
 
-        return result
-
-    async def eth_newFilter(self, *, fromBlock=None, toBlock=None, address=None, topics=None):
+    def eth_newFilter(self, *, fromBlock=None, toBlock=None, address=None, topics=None):
 
         kwargs = {}
         if fromBlock:
@@ -188,49 +184,35 @@ class JsonRPCClient:
                 raise TypeError("topics must be an array of DATA")
             kwargs['topics'] = [None if i is None else validate_hex(i, 32) for i in topics]
 
-        result = await self._fetch("eth_newFilter", [kwargs])
+        return self._fetch("eth_newFilter", [kwargs])
 
-        return result
+    def eth_newPendingTransactionFilter(self):
 
-    async def eth_newPendingTransactionFilter(self):
+        return self._fetch("eth_newPendingTransactionFilter", [])
 
-        result = await self._fetch("eth_newPendingTransactionFilter", [])
+    def eth_newBlockFilter(self):
 
-        return result
+        return self._fetch("eth_newBlockFilter", [])
 
-    async def eth_newBlockFilter(self):
+    def eth_getFilterChanges(self, filter_id):
 
-        result = await self._fetch("eth_newBlockFilter", [])
+        return self._fetch("eth_getFilterChanges", [filter_id])
 
-        return result
+    def eth_getFilterLogs(self, filter_id):
 
-    async def eth_getFilterChanges(self, filter_id):
+        return self._fetch("eth_getFilterLogs", [filter_id])
 
-        result = await self._fetch("eth_getFilterChanges", [filter_id])
+    def eth_uninstallFilter(self, filter_id):
 
-        return result
+        return self._fetch("eth_uninstallFilter", [filter_id])
 
-    async def eth_getFilterLogs(self, filter_id):
-
-        result = await self._fetch("eth_getFilterLogs", [filter_id])
-
-        return result
-
-    async def eth_uninstallFilter(self, filter_id):
-
-        result = await self._fetch("eth_uninstallFilter", [filter_id])
-
-        return result
-
-    async def eth_getCode(self, address, block="latest"):
+    def eth_getCode(self, address, block="latest"):
 
         address = validate_hex(address)
         block = validate_block_param(block)
-        result = await self._fetch("eth_getCode", [address, block])
+        return self._fetch("eth_getCode", [address, block])
 
-        return result
-
-    async def eth_getLogs(self, fromBlock=None, toBlock=None, address=None, topics=None):
+    def eth_getLogs(self, fromBlock=None, toBlock=None, address=None, topics=None):
 
         kwargs = {}
         if fromBlock:
@@ -252,11 +234,9 @@ class JsonRPCClient:
                         raise TypeError("topics must be an array of DATA")
             kwargs['topics'] = topics
 
-        result = await self._fetch("eth_getLogs", [kwargs])
+        return self._fetch("eth_getLogs", [kwargs])
 
-        return result
-
-    async def eth_call(self, *, to_address, from_address=None, gas=None, gasprice=None, value=None, data=None, block="latest"):
+    def eth_call(self, *, to_address, from_address=None, gas=None, gasprice=None, value=None, data=None, block="latest"):
 
         to_address = validate_hex(to_address)
         block = validate_block_param(block)
@@ -273,21 +253,21 @@ class JsonRPCClient:
         if data:
             callobj['data'] = validate_hex(data)
 
-        result = await self._fetch("eth_call", [callobj, block])
-        return result
+        return self._fetch("eth_call", [callobj, block])
 
-    async def trace_transaction(self, transaction_hash):
+    def eth_gasPrice(self):
 
-        result = await self._fetch("trace_transaction", [transaction_hash])
+        return self._fetch("eth_gasPrice", [], parse_int)
 
-        return result
+    def trace_transaction(self, transaction_hash):
 
-    async def trace_get(self, transaction_hash, *positions):
+        return self._fetch("trace_transaction", [transaction_hash])
 
-        result = await self._fetch("trace_get", [transaction_hash, positions])
-        return result
+    def trace_get(self, transaction_hash, *positions):
 
-    async def trace_replayTransaction(self, transaction_hash, *, vmTrace=False, trace=True, stateDiff=False):
+        return self._fetch("trace_get", [transaction_hash, positions])
+
+    def trace_replayTransaction(self, transaction_hash, *, vmTrace=False, trace=True, stateDiff=False):
 
         trace_type = []
         if vmTrace:
@@ -297,12 +277,10 @@ class JsonRPCClient:
         if stateDiff:
             trace_type.append('stateDiff')
 
-        result = await self._fetch("trace_replayTransaction", [transaction_hash, trace_type])
+        return self._fetch("trace_replayTransaction", [transaction_hash, trace_type])
 
-        return result
-
-    async def debug_traceTransaction(self, transaction_hash, *, disableStorage=None, disableMemory=None, disableStack=None,
-                                     fullStorage=None, tracer=None, timeout=None):
+    def debug_traceTransaction(self, transaction_hash, *, disableStorage=None, disableMemory=None, disableStack=None,
+                               fullStorage=None, tracer=None, timeout=None):
         kwargs = {}
         if disableStorage is not None:
             kwargs['disableStorage'] = disableStorage
@@ -315,14 +293,73 @@ class JsonRPCClient:
         if timeout is not None:
             kwargs['timeout'] = str(timeout)
 
-        result = await self._fetch("debug_traceTransaction", [transaction_hash, kwargs])
-        return result
+        return self._fetch("debug_traceTransaction", [transaction_hash, kwargs])
 
-    async def web3_clientVersion(self):
+    def web3_clientVersion(self):
 
-        result = await self._fetch("web3_clientVersion", [])
-        return result
+        return self._fetch("web3_clientVersion", [])
 
-    async def net_version(self):
+    def net_version(self):
 
-        return (await self._fetch("net_version", []))
+        return self._fetch("net_version", [])
+
+    def bulk(self):
+        return JsonRPCClient(self._url, self.should_retry, self.log, max_clients=self._max_clients, bulk_mode=True)
+
+    async def execute(self):
+        if not self._bulk_mode:
+            raise Exception("No Bulk request started")
+        if len(self._bulk_data) == 0:
+            return []
+
+        data = self._bulk_data[:]
+        self._bulk_data = []
+        futures = self._bulk_futures.copy()
+        self._bulk_futures = {}
+
+        retries = 0
+        while True:
+            try:
+                resp = await self._httpclient.fetch(
+                    self._url,
+                    method="POST",
+                    headers={'Content-Type': "application/json"},
+                    body=tornado.escape.json_encode(data)
+                )
+            except:
+                self.log.error("Error in JsonRPCClient.execute: retry {}".format(retries))
+                retries += 1
+                # give up after a "while"
+                if not self.should_retry or retries >= 5:
+                    raise
+                await asyncio.sleep(0.5)
+            else:
+                break
+
+        rvals = tornado.escape.json_decode(resp.body)
+
+        results = []
+        for rval in rvals:
+            if 'id' not in rval:
+                continue
+            future, result_processor = futures.pop(rval['id'], (None, None))
+            if future is None:
+                self.log.warning("Got unexpected id in jsonrpc bulk response")
+                continue
+            if "error" in rval:
+                future.set_exception(JsonRPCError(rval['id'], rval['error']['code'], rval['error']['message'], rval['error']['data'] if 'data' in rval['error'] else None))
+                result = None
+            else:
+                if result_processor:
+                    result = result_processor(rval['result'])
+                else:
+                    result = rval['result']
+                future.set_result(result)
+            results.append(result)
+
+        if len(futures):
+            self.log.warning("Found some unprocessed requests in bulk jsonrpc request")
+            for future, result_processor in futures:
+                future.set_exception(Exception("Unexpectedly missing result"))
+
+        return results

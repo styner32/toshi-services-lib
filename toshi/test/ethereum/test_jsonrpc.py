@@ -2,6 +2,7 @@ from toshi.test.base import AsyncHandlerTest
 from toshi.handlers import BaseHandler
 from toshi.ethereum import EthereumMixin
 from tornado.testing import gen_test
+from toshi.jsonrpc.client import JsonRPCClient
 
 from toshi.test.ethereum.parity import requires_parity, FAUCET_ADDRESS
 
@@ -23,3 +24,19 @@ class EthTest(AsyncHandlerTest):
 
         resp = await self.fetch('/')
         self.assertEqual(resp.body, b'1606938044258990275541962092341162602522202993782792835301376')
+
+    @gen_test
+    @requires_parity(pass_parity=True)
+    async def test_bulk(self, *, parity):
+        client = JsonRPCClient(parity.dsn()['url'])
+
+        bulk = client.bulk()
+        f1 = bulk.eth_blockNumber()
+        f2 = bulk.eth_getBalance(FAUCET_ADDRESS)
+        f3 = bulk.eth_gasPrice()
+        f4 = bulk.eth_getBalance("0x0000000000000000000000000000000000000000")
+        results = await bulk.execute()
+        self.assertEqual(f1.result(), results[0])
+        self.assertEqual(f2.result(), results[1])
+        self.assertEqual(f3.result(), results[2])
+        self.assertEqual(f4.result(), results[3])

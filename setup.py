@@ -8,7 +8,7 @@ if sys.version_info[:2] < (3, 5):
 
 setup(
     name='toshi-services',
-    version='0.0.4',
+    version='0.0.5',
     author='Tristan King',
     author_email='tristan.king@gmail.com',
     packages=['toshi'],
@@ -24,7 +24,8 @@ setup(
     ],
     extras_require={
         'ethereum': [
-            'ethereum==2.3.0',
+            'ethereum==2.3.1',
+            'rlp==0.6.0',
             'coincurve'
         ]
     },
