@@ -91,8 +91,9 @@ class JsonRPCClient:
                     headers={'Content-Type': "application/json"},
                     body=tornado.escape.json_encode(data)
                 )
-            except:
-                self.log.error("Error in JsonRPCClient._fetch ({}): retry {}".format(data['method'], retries))
+            except Exception as e:
+                self.log.error("Error in JsonRPCClient._fetch ({}, {}) \"{}\" attempt {}".format(
+                    data['method'], data['params'], str(e), retries))
                 retries += 1
                 # give up after a "while"
                 if not self.should_retry or retries >= 5:
