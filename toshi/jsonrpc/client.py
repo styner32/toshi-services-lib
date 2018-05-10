@@ -4,6 +4,7 @@ import random
 import regex
 import tornado.httpclient
 import logging
+import time
 
 from toshi.jsonrpc.errors import JsonRPCError
 from toshi.utils import parse_int
@@ -41,9 +42,10 @@ def validate_block_param(param):
 
 class JsonRPCClient:
 
-    def __init__(self, url, should_retry=True, log=None, max_clients=100, bulk_mode=False):
+    def __init__(self, url, should_retry=True, log=None, max_clients=100, bulk_mode=False, request_timeout=30.0):
         self._url = url
         self._max_clients = max_clients
+        self._request_timeout = request_timeout
         self._httpclient = tornado.httpclient.AsyncHTTPClient(max_clients=self._max_clients)
         if log is None:
             self.log = JSONRPC_LOG
@@ -82,6 +84,7 @@ class JsonRPCClient:
         # NOTE: letting errors fall through here for now as it means
         # there is something drastically wrong with the jsonrpc server
         # which means something probably needs to be fixed
+        req_start = time.time()
         retries = 0
         while True:
             try:
@@ -96,24 +99,31 @@ class JsonRPCClient:
                     data['method'], data['params'], str(e), retries))
                 retries += 1
                 # give up after a "while"
-                if not self.should_retry or retries >= 5:
+                if not self.should_retry or time.time() - req_start >= self._request_timeout:
                     raise
-                await asyncio.sleep(0.5)
-            else:
-                break
+                await asyncio.sleep(random.random())
+                continue
 
-        rval = tornado.escape.json_decode(resp.body)
+            rval = tornado.escape.json_decode(resp.body)
 
-        # verify the id we got back is the same as what we passed
-        if data['id'] != rval['id']:
-            raise JsonRPCError(-1, "returned id was not the same as the inital request")
+            # verify the id we got back is the same as what we passed
+            if data['id'] != rval['id']:
+                raise JsonRPCError(-1, "returned id was not the same as the inital request")
 
-        if "error" in rval:
-            raise JsonRPCError(rval['id'], rval['error']['code'], rval['error']['message'], rval['error']['data'] if 'data' in rval['error'] else None)
+            if "error" in rval:
+                # handle potential issues with the block number requested being too high because
+                # the nodes haven't all synced to the current block yet
+                # TODO: this is only supported by parity: geth returns "<nil>" when the block number if too high
+                if 'message' in rval['error'] and rval['error']['message'] == "Unknown block number":
+                    retries += 1
+                    if self.should_retry and time.time() - req_start < self._request_timeout:
+                        await asyncio.sleep(random.random())
+                        continue
+                raise JsonRPCError(rval['id'], rval['error']['code'], rval['error']['message'], rval['error']['data'] if 'data' in rval['error'] else None)
 
-        if result_processor:
-            return result_processor(rval['result'])
-        return rval['result']
+            if result_processor:
+                return result_processor(rval['result'])
+            return rval['result']
 
     def eth_getBalance(self, address, block="latest"):
 
@@ -305,7 +315,7 @@ class JsonRPCClient:
         return self._fetch("net_version", [])
 
     def bulk(self):
-        return JsonRPCClient(self._url, self.should_retry, self.log, max_clients=self._max_clients, bulk_mode=True)
+        return JsonRPCClient(self._url, self.should_retry, self.log, max_clients=self._max_clients, bulk_mode=True, request_timeout=self._request_timeout)
 
     async def execute(self):
         if not self._bulk_mode:

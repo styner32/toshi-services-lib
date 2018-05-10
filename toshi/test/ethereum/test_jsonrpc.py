@@ -50,3 +50,11 @@ class EthTest(AsyncHandlerTest):
             self.assertEqual(e.message, "Unknown block number")
         except Exception as e:
             self.fail("unexpected exception: {}".format(e))
+
+    @gen_test
+    @requires_parity(pass_parity=True)
+    async def test_unknown_block_number_handling(self, *, parity):
+        client = JsonRPCClient(parity.dsn()['url'])
+        block_number = await client.eth_blockNumber()
+        balance = await client.eth_getBalance(FAUCET_ADDRESS, block=block_number + 2)
+        self.assertEqual(balance, 1606938044258990275541962092341162602522202993782792835301376)
